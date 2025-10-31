@@ -1,0 +1,101 @@
+# Docker Compose for Production-like Local Environment
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: bcw-postgres
+    environment:
+      POSTGRES_USER: brickcitywars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: brickcitywars
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brickcitywars"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: bcw-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Server Application
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: bcw-server
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      COLYSEUS_PORT: 2567
+      DATABASE_URL: postgresql://brickcitywars:${POSTGRES_PASSWORD:-changeme}@postgres:5432/brickcitywars
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:-your-super-secure-jwt-secret-min-32-chars}
+      BUILD_VERSION: 1.0.3
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:8080
+    ports:
+      - "3000:3000"
+      - "2567:2567"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Webclient (Nginx)
+  webclient:
+    build:
+      context: .
+      dockerfile: apps/webclient/Dockerfile
+      args:
+        VITE_API_BASE: http://localhost:3000
+        VITE_WS_URL: ws://localhost:2567
+        VITE_BUILD_VERSION: 1.0.3
+    container_name: bcw-webclient
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: bcw-network

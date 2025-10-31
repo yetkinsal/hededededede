@@ -1,0 +1,16 @@
+{
+  "name": "brick-city-wars",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mono-repo for the Brick City Wars prototype",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @brick-city-wars/server --filter @brick-city-wars/webclient dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint || true"
+  }
+}
